@@ -18557,7 +18557,13 @@
 
 /* ======================= Start-Font-size ======================= */
 .head-text {
-  font-size: 34px !important;
+  font-size: 21px !important;
+  margin: 0px !important;
+  font-weight: 500 !important;
+}
+.para-text{
+  font-size: 14px !important;
+  font-weight: 400 !important;
 }
 /* ======================= End-Font-size ======================= */
 
