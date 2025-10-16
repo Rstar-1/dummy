@@ -1,0 +1,713 @@
+import React, { useEffect, useState } from "react";
+import { useSelector, useDispatch } from "react-redux";
+import {
+  getproducts,
+  deleteproducts,
+  bulkdeleteproducts
+} from "../../../redux/product/ProductSlice";
+// import ReactPaginate from "react-paginate";
+import Pagination from "./Pagination";
+
+const Add = () => {
+    // Redux State
+    const dispatch = useDispatch();
+    const { loading, error } = useSelector((state) => state.productdata);
+    const getdata = useSelector(
+      (state) => state.productdata.productdata.productstore
+    );
+    const totalCount = useSelector((state) => state.productdata.totalCount);
+    // Redux State
+    const [currentpage, setcurrentpage] = useState(0);
+    const [searches, setSearches] = useState({
+      search: "",
+      sectionid: "",
+      sectionname: "",
+      cmsdata: "",
+      fromDate: "",
+      toDate: ""
+    });
+    const [sortKey, setSortKey] = useState("");
+    const [sortDirection, setSortDirection] = useState("asc");
+    const [columns, setColumns] = useState([
+        { key: "sectionid", label: "Section ID" },
+        { key: "sectionname", label: "Section Name" },
+        { key: "cmsdata", label: "CMS Data" },
+        { key: "status", label: "Status" },
+        { key: "actions", label: "Actions" },
+    ]);
+    const [isOpen, setIsOpen] = useState(false);
+    const [selectedOptions, setSelectedOptions] = useState([]);
+    const options = ['All', 'Active', 'Inactive'];
+    const toggleOption = (option) => {
+      if (option === "All") setSelectedOptions([]);
+      else setSelectedOptions(prev => prev.includes(option) ? [] : [option]);
+    };
+    const [draggedCol, setDraggedCol] = useState(null);
+    const [enableDrag, setEnableDrag] = useState(true);
+    const [enableResize, setEnableResize] = useState(true);
+    const [enabletoggle, setEnabletoggle] = useState(true);
+    const startResize = (i, e) => {
+      if (!enableResize) return;
+      e.preventDefault();
+      const startX = e.clientX, startW = columns[i].width || 200;
+      const onMove = (e) => {
+        const width = Math.max(startW + e.clientX - startX, 50);
+        setColumns((cols) =>
+          cols.map((c, idx) => (idx === i ? { ...c, width } : c))
+        );
+      };
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    };
+    const [visible, setVisible] = useState(
+      Object.fromEntries(columns.map(c => [c.key, true]))
+    );
+    const toggleColumn = key => setVisible(v => ({ ...v, [key]: !v[key] }));
+    const handleSort = (key) => {
+      if (sortKey === key) {
+        setSortDirection(sortDirection === "asc" ? "desc" : "asc");
+      } else {
+        setSortKey(key);
+        setSortDirection("asc");
+      }
+      setCurrentPage(0);
+    };
+    const handleDragStart = (i) => enableDrag && setDraggedCol(i);
+    const handleDragOver = (e) => enableDrag && e.preventDefault();
+    const handleDrop = (dropIndex) => {
+      if (!enableDrag || draggedCol === null) return;
+      const reorderedCols = [...columns];
+      const [movedCol] = reorderedCols.splice(draggedCol, 1);
+      reorderedCols.splice(dropIndex, 0, movedCol);
+      setColumns(reorderedCols);
+      setDraggedCol(null);
+    };
+    const [draggedRowIndex, setDraggedRowIndex] = useState(null);
+    const [localProducts, setLocalProducts] = useState([]);
+    useEffect(() => {
+      if (getdata) {
+        setLocalProducts(getdata);
+      }
+    }, [getdata]);
+    const handleSearchFilter = () => {
+      const filters = ["sectionid", "sectionname", "cmsdata"]
+        .filter((key) => {
+          const val = searches[key];
+          return typeof val === "string" && val.trim() !== "";
+        })
+        .map((key) => {
+          let value = searches[key].trim();
+          if (key === "sectionid") {
+            const num = Number(value);
+            if (!isNaN(num)) value = num;
+            else value = ""; // skip or keep blank
+          }
+          return { field: key, value };
+        })
+        .filter((filter) => filter.value !== "");
+
+      if (searches.fromDate || searches.toDate) {
+        filters.push({
+          field: "createdAt",
+          from: searches.fromDate,
+          to: searches.toDate,
+        });
+      }
+
+      let statusFilter = "";
+      if (selectedOptions.length === 1) {
+        if (selectedOptions[0] === "Active") statusFilter = "true";
+        else if (selectedOptions[0] === "Inactive") statusFilter = "false";
+      }
+
+      dispatch(
+        getproducts({
+          offset: currentpage * 6,
+          search: searches.search.trim(),
+          searchFilters: filters,
+          statusFilter,
+          sortKey,
+          sortDirection,
+        })
+      );
+    };
+    useEffect(() => {
+      const delay = setTimeout(() => {
+        handleSearchFilter();
+      }, 500);
+
+      return () => clearTimeout(delay);
+    }, [searches, currentpage, sortKey, sortDirection, selectedOptions, dispatch]);
+    const handlePageClick = (e) => {
+      setcurrentpage(e.selected);
+    };
+    function sanitizeInput(value) {
+      return value.replace(/[<>]/g, "");
+    }
+    const handleSearchChange = (key) => (e) => {
+      let value = e.target.value;
+      value = sanitizeInput(value);
+      setSearches(prev => ({ ...prev, [key]: value }));
+    };
+    // Loading and Error
+    if (error) {
+      return (
+        <div className="flex justify-center items-center h-100">
+          <p>{error}</p>
+        </div>
+      );
+    }
+    // Loading and Error
+    const exportExcel = () => {
+      if (!localProducts.length) return;
+      const headers = Object.keys(localProducts[0])
+        .filter(key => key !== "__v") // filter undesired fields if needed
+        .map((key) => `<th>${key.charAt(0).toUpperCase() + key.slice(1)}</th>`)
+        .join("");
+
+      const rows = localProducts
+        .map(
+          (row) =>
+            `<tr>${Object.keys(row)
+              .filter(key => key !== "__v")
+              .map((key) => `<td>${row[key]}</td>`)
+              .join("")}</tr>`
+        )
+        .join("");
+
+      const table = `
+        <table border="1">
+          <thead><tr style="background:#4CAF50;color:#fff;font-weight:bold;">
+            ${headers}
+          </tr></thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+      `;
+
+      const uri = "data:application/vnd.ms-excel;base64,";
+      const base64 = (s) => window.btoa(unescape(encodeURIComponent(s)));
+      const link = document.createElement("a");
+      link.href = uri + base64(table);
+      link.download = "products.xls";
+      link.click();
+    };
+    // Delete Data
+    const handleDelete = async (id) => {
+      try {
+        const resultAction = await dispatch(deleteproducts(id));
+        if (deleteproducts.fulfilled.match(resultAction)) {
+          alert("Deleted successfully");
+          dispatch(getproducts({ 
+            offset: currentpage * 6,
+            search: searches.search.trim(),
+            searchFilters: filters,
+            statusFilter,  // add here
+            sortKey,
+            sortDirection,
+          }));
+        } else {
+          alert("Failed to delete item");
+        }
+      } catch (error) {
+        console.error("Error deleting item:", error);
+      }
+    };
+    // Delete Data
+    // Bulk Delete Data
+    const [selectedIds, setSelectedIds] = useState([]);
+    const [selectAll, setSelectAll] = useState(false);
+    const handleBulkDelete = async () => {
+        if (!selectedIds.length) return alert("No items selected");
+        const confirmDelete = window.confirm(`Delete ${selectedIds.length} products?`);
+        if (!confirmDelete) return;
+        try {
+          const result = await dispatch(bulkdeleteproducts(selectedIds));
+          if (bulkdeleteproducts.fulfilled.match(result)) {
+            alert("Bulk delete successfull");
+            setSelectedIds([]);
+            setSelectAll(false);
+            dispatch(getproducts({ 
+              offset: currentpage * 6,
+              search: searches.search.trim(),
+              searchFilters: filters,
+              statusFilter,
+              sortKey,
+              sortDirection,
+            }));
+        } else {
+          alert("Failed to delete item");
+        }
+      } catch (error) {
+        console.error("Error deleting item:", error);
+      }
+    };
+
+  return (
+    <div className="">
+      {/* Search and Table Section */}
+      <div className="">
+        <div className="relative flex items-center gap-12">
+            <div className="w-80">
+              <input
+                className="bgwhite textgray h-input fsize14 rounded-5 border-ec"
+                value={searches.search}
+                onChange={handleSearchChange("search")}
+                placeholder="Search"
+              />
+            </div>
+            <button
+              onClick={exportExcel}
+              className="bgprimary textwhite rounded-5 border-0 text-white w-20 py9"
+            >
+              Export to Excel
+            </button>
+        </div>
+        <div className="grid-cols-5 gap-12 my10">
+            <input
+              className="w-full bgwhite textgray h-input fsize14 rounded-5 border-0"
+              value={searches.sectionid}
+              onChange={handleSearchChange("sectionid")}
+              placeholder="Search Section ID"
+            />
+            <input
+              className="w-full bgwhite textgray h-input fsize14 rounded-5 border-0"
+              value={searches.sectionname}
+              onChange={handleSearchChange("sectionname")}
+              placeholder="Search Section Name"
+            />
+            <input
+              className="w-full bgwhite textgray h-input fsize14 rounded-5 border-0"
+              value={searches.cmsdata}
+              onChange={handleSearchChange("cmsdata")}
+              placeholder="Search CMS Data"
+            />
+            <div className="relative w-full overflow-hidden">
+              <input
+                className="bgwhite textgray h-input fsize14 rounded-5 border-0"
+                value={searches.fromDate}
+                onChange={handleSearchChange("fromDate")}
+                placeholder="From Date "
+              />
+              <input
+                type="datetime-local"
+                className="w-full h-input fsize14 absolute top-0 left-0 opacity-0"
+                value={searches.fromDate}
+                onChange={handleSearchChange("fromDate")}
+                onClick={(e) => {
+                  e.target.showPicker?.();
+                }}
+                placeholder="From Date"
+              />
+              <div className="absolute top-0 right-0 my7 mx5">
+                <svg viewBox="0 0 24 24" 
+                  width="20" 
+                  height="20" 
+                  stroke="gray" 
+                  strokeWidth="2" 
+                  fill="none" 
+                  className="flex"
+                  >
+                  <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                  <line x1="16" y1="2" x2="16" y2="6"></line>
+                  <line x1="8" y1="2" x2="8" y2="6"></line>
+                  <line x1="3" y1="10" x2="21" y2="10"></line>
+                </svg>
+              </div>
+            </div>
+            <div className="relative w-full overflow-hidden">
+              <input
+                className="w-full bgwhite textgray h-input fsize14 rounded-5 border-0"
+                value={searches.toDate}
+                onChange={handleSearchChange("toDate")}
+                placeholder="End Date"
+              />
+              <input
+                type="datetime-local"
+                className="w-full h-input fsize14 absolute top-0 left-0 opacity-0"
+                value={searches.toDate}
+                onChange={handleSearchChange("toDate")}
+                onClick={(e) => {
+                  e.target.showPicker?.();
+                }}
+                min={searches.fromDate}
+                placeholder="To Date"
+              />
+              <div className="absolute top-0 right-0 my7 mx5">
+                <svg viewBox="0 0 24 24" 
+                  width="20" 
+                  height="20" 
+                  stroke="gray" 
+                  strokeWidth="2" 
+                  fill="none" 
+                  className="flex"
+                  >
+                  <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                  <line x1="16" y1="2" x2="16" y2="6"></line>
+                  <line x1="8" y1="2" x2="8" y2="6"></line>
+                  <line x1="3" y1="10" x2="21" y2="10"></line>
+                </svg>
+              </div>
+            </div>
+            <div
+              className="relative w-full"
+              tabIndex={0}
+              onBlur={(e) => {
+                setTimeout(() => setIsOpen(false), 100);
+              }}
+            >
+              <div
+                onClick={() => setIsOpen(!isOpen)}
+                className="w-full bgwhite textgray h-input rounded-5 border-0 flex items-center justify-between overflow-auto"
+              >
+                <p className="fsize14">
+                  {selectedOptions.length > 0
+                    ? selectedOptions.join(', ')
+                    : 'Select options'}
+                </p>
+                <svg 
+                  viewBox="0 0 24 24" 
+                  width="20" 
+                  height="20" 
+                  stroke="gray" 
+                  strokeWidth="2" 
+                  fill="none"
+                  className="flex mrpx5"
+                >
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+              </div>
+              {isOpen && (
+                <div className="absolute z-10 mtpx4 w-full bgwhite rounded-5 b-shadow">
+                  {options.map((option) => (
+                    <label
+                      key={option}
+                      className="flex items-center py10 px10 bordb cursor-pointer fsize14 textgray"
+                    >
+                     <input
+                        type="checkbox"
+                        checked={selectedOptions.includes(option)}
+                        onChange={() => toggleOption(option)}
+                        className="mrpx6 checkbox"
+                        name="single-select"
+                      />
+                      {option}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+            {selectedIds.length > 0 && (
+              <button
+                className="bgprimary textwhite rounded-5 border-0 text-white w-full py9"
+                onClick={handleBulkDelete} // Define this handler
+              >
+                Delete Selected ({selectedIds.length})
+              </button>
+            )}
+        </div>
+        <div className="gap-12 capitalize my10 justify-between">
+            <div className="flex items-center gap-12">
+              {enabletoggle ? 
+              <>
+                  <label className="fsize14">
+                    <input
+                      type="checkbox"
+                      className="checkbox"
+                      checked={Object.values(visible).every(Boolean)}
+                      onChange={e => {
+                        const allChecked = e.target.checked;
+                        setVisible(Object.fromEntries(columns.map(c => [c.key, allChecked])));
+                      }}
+                    />
+                    Select All
+                  </label>
+                  {columns.map(col => (
+                    <label className="fsize14" key={col.key}>
+                      <input
+                        type="checkbox"
+                        className="checkbox"
+                        checked={visible[col.key]}
+                        onChange={() => toggleColumn(col.key)}
+                      />
+                      {col.key}
+                    </label>
+                  ))}
+              </> : null}
+            </div>
+            <div className="flex items-center justify-end gap-12">           
+              <label className="fsize14">
+                  <input
+                    className="checkbox"
+                    type="checkbox"
+                    checked={enableResize}
+                    onChange={() => setEnableResize(!enableResize)}
+                  />
+                  Resize
+              </label>
+              <label className="fsize14">
+                  <input
+                    className="checkbox"
+                    type="checkbox"
+                    checked={enableDrag}
+                    onChange={() => setEnableDrag(!enableDrag)}
+                  />
+                  Drag
+              </label>
+              <label className="fsize14">
+                  <input
+                    className="checkbox"
+                    type="checkbox"
+                    checked={enabletoggle}
+                    onChange={() => setEnabletoggle(!enabletoggle)}
+                  />
+                  Toogle
+              </label>
+            </div>
+        </div>
+        <div className="table-w">
+            {loading ? (
+              <>
+                <div className="w-full bg-fa p10"></div>
+              </>
+            ) : (
+              <table className="w-full">
+                <thead>
+                  <tr>
+                     <th>
+                        <input
+                          type="checkbox"
+                          checked={selectAll}
+                          onChange={() => {
+                            setSelectAll(!selectAll);
+                            setSelectedIds(!selectAll ? localProducts.map((p) => p._id) : []);
+                          }}
+                        />
+                      </th>
+                    {columns.map((col, i) =>
+                      visible[col.key] ? (
+                        <th
+                          key={col.key}
+                          draggable={enableDrag}
+                          onDragStart={() => handleDragStart(i)}
+                          onDragOver={handleDragOver}
+                          onDrop={() => handleDrop(i)}
+                          onClick={() =>
+                            ["sectionid", "sectionname", "cmsdata"].includes(col.key)
+                              ? handleSort(col.key)
+                              : null
+                          }
+                          style={{
+                            cursor: "move",
+                            width: col.width,
+                            minWidth: 50,
+                            position: "relative",
+                            userSelect: "none",
+                          }}
+                          className="fsize13 textwhite font-300 table-colsm"
+                        >
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                            }}
+                          >
+                            <span>
+                              {col.label}
+                              {sortKey === col.key && (
+                                <span>{sortDirection === "asc" ? " ▲" : " ▼"}</span>
+                              )}
+                            </span>
+                            {/* Resize Handle */}
+                            {enableResize && (
+                              <span
+                                onMouseDown={(e) => startResize(i, e)}
+                                style={{
+                                  cursor: "col-resize",
+                                  padding: "0 4px",
+                                  marginLeft: 4,
+                                  borderLeft: "1px solid #ccc",
+                                  height: "100%",
+                                }}
+                              >
+                                ⠿
+                              </span>
+                            )}
+                          </div>
+                        </th>
+                      ) : null
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                    {loading ? (
+                      <tr>
+                        <td colSpan="5" className="text-center py-4">
+                          Loading...
+                        </td>
+                      </tr>
+                    ) : localProducts?.length ? (
+                      localProducts.map((e, index) => (
+                        <tr
+                          key={e._id || index}
+                          draggable
+                          onDragStart={() => setDraggedRowIndex(index)}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={() => {
+                            if (draggedRowIndex === null || draggedRowIndex === index) return;
+                            const newData = [...localProducts];
+                            const [movedItem] = newData.splice(draggedRowIndex, 1);
+                            newData.splice(index, 0, movedItem);
+                            setDraggedRowIndex(null);
+                            setLocalProducts(newData);
+                          }}
+                        >
+                          <td>
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.includes(e._id)}
+                              onChange={() => {
+                                setSelectedIds((prev) =>
+                                  prev.includes(e._id)
+                                    ? prev.filter((id) => id !== e._id)
+                                    : [...prev, e._id]
+                                );
+                              }}
+                            />
+                          </td>
+                          {columns.map((col) =>
+                            visible[col.key] ? (
+                              <td key={col.key} className="fsize13 textforth table-colsm">
+                                {
+                                  col.key === "actions" ? (
+                                    <div className="flex items-center gap-6">
+                                      <p>Edit</p>
+                                      <p onClick={() => handleDelete(e._id)}>Trash</p>
+                                    </div>
+                                  ) : col.key === "status" ? (
+                                    <button className={`...`}>
+                                      {e.status ? "Publish" : "Unpublish"}
+                                    </button>
+                                  ) : (
+                                    e[col.key]
+                                  )
+                                }
+                              </td>
+                            ) : null
+                          )}
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan="5" className="text-center py-4">
+                          No data found.
+                        </td>
+                      </tr>
+                    )}
+                </tbody>
+              </table>
+            )}
+        </div>
+      </div>
+      {/* Pagination */}
+      <div className="flex w-full justify-end mtpx10">
+        {/* <ReactPaginate
+          className="pagination"
+          breakLabel="..."
+          nextLabel=">"
+          previousLabel="<"
+          pageCount={Math.ceil(totalCount / 6)}
+          onPageChange={handlePageClick}
+          pageRangeDisplayed={6}
+          forcePage={currentpage}
+        /> */}
+        <Pagination
+          pageCount={Math.ceil(totalCount / 6)}
+          onPageChange={handlePageClick}
+          pageRangeDisplayed={6}
+          forcePage={currentpage}
+      />
+      </div>
+    </div>
+  );
+};
+
+export default Add;
+
+
+import React, { useState } from "react";
+
+const Pagination = ({
+  pageCount,
+  onPageChange,
+  forcePage = 0,
+  breakLabel = "...",
+  nextLabel = ">",
+  previousLabel = "<",
+}) => {
+  const [expanded, setExpanded] = useState(false);
+
+  const pages = (() => {
+    if (pageCount <= 3 || expanded) {
+      return [...Array(pageCount).keys()];
+    }
+    return [0, 1, breakLabel, pageCount - 1];
+  })();
+
+  const handleBreakClick = () => setExpanded(true);
+
+  return (
+    <div className="flex gap-6 justify-end items-center mt-4 pagination">
+      <button
+        onClick={() => onPageChange({ selected: forcePage - 1 })}
+        disabled={forcePage === 0}
+        className="center-div border-0 rounded-full bg-fa hover:bg-gray-300 disabled:opacity-50 cursor-pointer"
+      >
+        {previousLabel}
+      </button>
+      {pages.map((p, i) =>
+        p === breakLabel ? (
+          <span
+            key={`break-${i}`}
+            onClick={handleBreakClick}
+            style={{ cursor: "pointer" }}
+            className="px-2 text-gray-500 select-none"
+            title="Show all pages"
+          >
+            {breakLabel}
+          </span>
+        ) : (
+          <button
+            key={p}
+            onClick={() => onPageChange({ selected: p })}
+            className={`center-div border-0 rounded-full px-3 py-1 ${
+              p === forcePage ? "bgprimary textwhite" : "bg-ec"
+            }`}
+          >
+            {p + 1}
+          </button>
+        )
+      )}
+      <button
+        onClick={() => onPageChange({ selected: forcePage + 1 })}
+        disabled={forcePage === pageCount - 1}
+        className="center-div border-0 rounded-full bg-fa hover:bg-gray-300 disabled:opacity-50 cursor-pointer"
+      >
+        {nextLabel}
+      </button>
+    </div>
+  );
+};
+
+export default Pagination;
+
+
+
+
+
